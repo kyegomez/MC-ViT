@@ -5,7 +5,14 @@ Implementation of the model: "(MC-ViT)" from the paper: "Memory Consolidation En
 
 
 ## Install
-``
+`$ pip install mcvit`
+
+## Usage
+```python
+import torch 
+from mcvit import McViT
+
+```
 
 
 # License
