@@ -582,6 +582,18 @@ class MCViT(nn.Module):
         *args,
         **kwargs,
     ):
+        """
+        Multi-Chunk Vision Transformer (MCViT) model.
+
+        Args:
+            dim (int): Dimension of the input features.
+            dim_head (int): Dimension of each attention head.
+            dropout (float): Dropout rate.
+            chunks (int): Number of chunks to divide the input into.
+            depth (int): Number of transformer layers.
+            cross_attn_heads (int): Number of attention heads for cross attention.
+
+        """
         super().__init__()
         self.dim = dim
         self.dim_head = dim_head
@@ -624,4 +636,14 @@ class MCViT(nn.Module):
         
 
     def forward(self, x: Tensor) -> Tensor:
+        """
+        Forward pass of the MCViT model.
+
+        Args:
+            x (Tensor): Input tensor of shape (batch_size, sequence_length, dim).
+
+        Returns:
+            Tensor: Output tensor of shape (batch_size, sequence_length, dim).
+
+        """
         return x
