@@ -1,14 +1,12 @@
-
-
 from typing import Callable, List, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
 from beartype import beartype
-from einops import pack, rearrange, repeat, unpack
+from einops import pack, rearrange, reduce, repeat, unpack
 from einops.layers.torch import Rearrange, Reduce
 from torch import Tensor, einsum, nn
-from zeta.nn import SwiGLU
+from zeta.nn import SwiGLU, video_to_text
 
 # helpers
 
@@ -574,6 +572,7 @@ class MCViT(nn.Module):
     def __init__(
         self,
         dim: int,
+        attn_seq_len: int,
         dim_head: int,
         dropout: float,
         chunks: int,
@@ -596,6 +595,7 @@ class MCViT(nn.Module):
         """
         super().__init__()
         self.dim = dim
+        self.attn_seq_len = attn_seq_len
         self.dim_head = dim_head
         self.dropout = dropout
         self.chunks = chunks
@@ -640,10 +640,51 @@ class MCViT(nn.Module):
         Forward pass of the MCViT model.
 
         Args:
-            x (Tensor): Input tensor of shape (batch_size, sequence_length, dim).
+            x (Tensor): Input tensor of shape (B, T, C, H, W).
 
         Returns:
-            Tensor: Output tensor of shape (batch_size, sequence_length, dim).
+            Tensor: Output tensor of shape (B, T, C, H, W).
 
         """
-        return x
+        B, T, C, H, W = x.shape
+        embedding = self.video_proj(x)
+        
+        # Chunk the video into chunks using einops
+        chunked_video = rearrange(embedding, 'b t c h w -> (b t) c h w')
+        
+        # Memory = None
+        memory = None
+        
+        # Empty zs list
+        zs = []
+        
+        # Loop through the chunks
+        for z in chunked_video:
+            z = self.norm(z)
+            for _ in range(self.depth):
+                if memory is not None:
+                    y = video_to_text(z, self.attn_seq_len, self.dim, True)
+                    y = self.attn(y) + y
+                else: 
+                    # Concat the norm and memory
+                    kv = torch.cat([z, memory], dim=1)
+                    y = video_to_text(y, self.attn_seq_len, self.dim, True)
+                    y = self.cross_attn(y, kv)
+            
+                # norm
+                y_norm = self.norm(y)
+                
+                # MLP
+                z = self.mlp(y_norm) + y
+                
+                # Memory consolidation that takes in memory, z, num_mem, and mc_method
+                # memory = memory_consolidation(memory, z, num_mem, mc_method)
+                
+                # Normalize the memory
+                memory = self.norm(memory)
+                
+                # Append the 
+                zs.append(z)
+                
+        # Concatenate the zs list
+        zs = torch.cat(zs, dim=1)
