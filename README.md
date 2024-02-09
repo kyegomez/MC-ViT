@@ -4,6 +4,9 @@
 Implementation of the model: "(MC-ViT)" from the paper: "Memory Consolidation Enables Long-Context Video Understanding"
 
 
+## Install
+``
+
 
 # License
 MIT
