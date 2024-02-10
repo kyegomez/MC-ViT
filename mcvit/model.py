@@ -3,7 +3,7 @@ from typing import Callable, List, Optional, Tuple
 import torch
 import torch.nn.functional as F
 from beartype import beartype
-from einops import pack, rearrange, reduce, repeat, unpack
+from einops import pack, rearrange, repeat, unpack
 from einops.layers.torch import Rearrange, Reduce
 from torch import Tensor, einsum, nn
 from zeta.nn import SwiGLU, video_to_text
@@ -569,6 +569,19 @@ class MaxViT(nn.Module):
 
 
 class MCViT(nn.Module):
+    """
+    Multi-Chunk Vision Transformer (MCViT) model.
+
+    Args:
+        dim (int): Dimension of the input features.
+        dim_head (int): Dimension of each attention head.
+        dropout (float): Dropout rate.
+        chunks (int): Number of chunks to divide the input into.
+        depth (int): Number of transformer layers.
+        cross_attn_heads (int): Number of attention heads for cross attention.
+
+    """
+
     def __init__(
         self,
         dim: int,
@@ -581,18 +594,6 @@ class MCViT(nn.Module):
         *args,
         **kwargs,
     ):
-        """
-        Multi-Chunk Vision Transformer (MCViT) model.
-
-        Args:
-            dim (int): Dimension of the input features.
-            dim_head (int): Dimension of each attention head.
-            dropout (float): Dropout rate.
-            chunks (int): Number of chunks to divide the input into.
-            depth (int): Number of transformer layers.
-            cross_attn_heads (int): Number of attention heads for cross attention.
-
-        """
         super().__init__()
         self.dim = dim
         self.attn_seq_len = attn_seq_len
@@ -620,9 +621,9 @@ class MCViT(nn.Module):
             dim_head=dim_head,
             heads=cross_attn_heads,
             *args,
-            **kwargs
+            **kwargs,
         )
-        
+
         # MLP
         self.mlp = nn.Sequential(
             nn.Linear(dim, dim * 4),
@@ -630,10 +631,9 @@ class MCViT(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(dim * 4, dim),
         )
-        
+
         # Memory consolidation
         self.memory_consolidation = None
-        
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -648,43 +648,49 @@ class MCViT(nn.Module):
         """
         B, T, C, H, W = x.shape
         embedding = self.video_proj(x)
-        
+
         # Chunk the video into chunks using einops
-        chunked_video = rearrange(embedding, 'b t c h w -> (b t) c h w')
-        
+        chunked_video = rearrange(
+            embedding, "b t c h w -> (b t) c h w"
+        )
+
         # Memory = None
         memory = None
-        
+
         # Empty zs list
         zs = []
-        
+
         # Loop through the chunks
         for z in chunked_video:
             z = self.norm(z)
             for _ in range(self.depth):
                 if memory is not None:
-                    y = video_to_text(z, self.attn_seq_len, self.dim, True)
+                    y = video_to_text(
+                        z, self.attn_seq_len, self.dim, True
+                    )
                     y = self.attn(y) + y
-                else: 
+                else:
                     # Concat the norm and memory
                     kv = torch.cat([z, memory], dim=1)
-                    y = video_to_text(y, self.attn_seq_len, self.dim, True)
+                    y = video_to_text(
+                        y, self.attn_seq_len, self.dim, True
+                    )
                     y = self.cross_attn(y, kv)
-            
+
                 # norm
                 y_norm = self.norm(y)
-                
+
                 # MLP
                 z = self.mlp(y_norm) + y
-                
+
                 # Memory consolidation that takes in memory, z, num_mem, and mc_method
                 # memory = memory_consolidation(memory, z, num_mem, mc_method)
-                
+
                 # Normalize the memory
                 memory = self.norm(memory)
-                
-                # Append the 
+
+                # Append the
                 zs.append(z)
-                
+
         # Concatenate the zs list
         zs = torch.cat(zs, dim=1)
