@@ -1,3 +1,3 @@
-from mcvit.model import MCViT
+from mcvit.model import CrossAttention, MCViT
 
-__all__ = ["MCViT"]
+__all__ = ["MCViT", "CrossAttention"]

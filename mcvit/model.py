@@ -6,7 +6,7 @@ from beartype import beartype
 from einops import pack, rearrange, repeat, unpack
 from einops.layers.torch import Rearrange, Reduce
 from torch import Tensor, einsum, nn
-from zeta.nn import SwiGLU, video_to_text
+from zeta.nn import SwiGLU, threed_to_text
 
 # helpers
 
@@ -580,6 +580,34 @@ class MCViT(nn.Module):
         depth (int): Number of transformer layers.
         cross_attn_heads (int): Number of attention heads for cross attention.
 
+    Examples:
+    >>> import torch
+    >>> from mcvit.model import MCViT
+    >>>
+    >>> # Initialize the MCViT model
+    >>> mcvit = MCViT(
+    ...     dim=512,
+    ...     attn_seq_len=256,
+    ...     dim_head=64,
+    ...     dropout=0.1,
+    ...     chunks=16,
+    ...     depth=12,
+    ...     cross_attn_heads=8,
+    ... )
+    >>>
+    >>> # Create a random tensor to represent a video
+    >>> x = torch.randn(
+    ...     1, 3, 256, 256, 256
+    ... )  # (batch, channels, frames, height, width)
+    >>>
+    >>> # Pass the tensor through the model
+    >>> output = mcvit(x)
+    >>>
+    >>> print(
+    ...     output.shape
+    ... )  # Outputs the shape of the tensor after passing through the model
+
+
     """
 
     def __init__(
@@ -647,15 +675,15 @@ class MCViT(nn.Module):
 
         """
         B, T, C, H, W = x.shape
-        embedding = self.video_proj(x)
+        # embedding = self.video_proj(x)
+        # print(embedding.shape)
 
         # Chunk the video into chunks using einops
-        chunked_video = rearrange(
-            embedding, "b t c h w -> (b t) c h w"
-        )
+        chunked_video = rearrange(x, "b t c h w -> (b t) c h w")
+        print(chunked_video.shape)
 
         # Memory = None
-        memory = None
+        memory = torch.zeros(1, 1, 1, 1, 1)
 
         # Empty zs list
         zs = []
@@ -663,18 +691,21 @@ class MCViT(nn.Module):
         # Loop through the chunks
         for z in chunked_video:
             z = self.norm(z)
+            print(z.shape)
             for _ in range(self.depth):
                 if memory is not None:
-                    y = video_to_text(
+                    y = threed_to_text(
                         z, self.attn_seq_len, self.dim, True
                     )
-                    y = self.attn(y) + y
+                    print(y.shape)
+                    y, _ = self.attn(y) + y
                 else:
                     # Concat the norm and memory
                     kv = torch.cat([z, memory], dim=1)
-                    y = video_to_text(
+                    y = threed_to_text(
                         y, self.attn_seq_len, self.dim, True
                     )
+                    print(y.shape)
                     y = self.cross_attn(y, kv)
 
                 # norm
@@ -689,8 +720,11 @@ class MCViT(nn.Module):
                 # Normalize the memory
                 memory = self.norm(memory)
 
-                # Append the
+                # Append the zs list
                 zs.append(z)
 
-        # Concatenate the zs list
-        zs = torch.cat(zs, dim=1)
+        return zs
+        # # Concatenate the zs list
+        # zs = torch.cat(zs, dim=1)
+
+        # return zs
